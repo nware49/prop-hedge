@@ -1,0 +1,38 @@
+{
+  "nickname1": {
+    "hedge_to": "nickname2", 
+    "platform": "MT5",
+    "path":"",
+    "login": 123456,
+    "password": "your_password_1",
+    "server": "FTMO",
+    "capital": 10000,
+    "max_dd": 10,
+    "daily_dd": 5,
+    "trade_dd": 4.5,
+    "leverage": 50,
+    "day_close": "20:00",
+    "overnight": "True",
+    "symbol": "XAUUSD",
+    "us_traders": "False",
+    "ea_allowed": "False"
+  },
+  "nickname2": {
+    "hedge_to": "nickname1", 
+    "platform": "MT5",
+    "path":"",
+    "login": 123456,
+    "password": "your_password_1",
+    "server": "FTMO",
+    "capital": 10000,
+    "max_dd": 10,
+    "daily_dd": 5,
+    "trade_dd": 4.5,
+    "leverage": 50,
+    "day_close": "20:00",
+    "overnight": "True",
+    "symbol": "XAUUSD",
+    "us_traders": "False",
+    "ea_allowed": "False"
+  }
+}

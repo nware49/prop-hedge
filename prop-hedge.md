@@ -55,3 +55,10 @@ Create a Python trading algorithm that can manage multiple MT5 terminals with th
 - Figure out which platform will be used
 - Find best deals and most relaiable prop firms
 - Allow EA trading
+
+``Updated Structure Plan``
+- algo-main sets up threads
+- use schedule package to call trade scheduler each day
+- central thread asks scheduler to return trade times as attribute of acc pair
+- central thread creates timer threads for trade executions
+- trade execution functions take at least 3 args; acc handlers and acc pair

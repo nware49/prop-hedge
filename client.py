@@ -1,40 +1,52 @@
-import MetaTrader5 as mt5
+import MetaTrader5 as mt
+import MetaTrader5Dupe1 as mt5_1
+import MetaTrader5Dupe2 as mt5_2
 import pandas as pd
 from datetime import datetime
 
-buy_types = [mt5.ORDER_TYPE_BUY, mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP, mt5.ORDER_TYPE_BUY_STOP_LIMIT]
-buy_types = [mt5.ORDER_TYPE_SELL, mt5.ORDER_TYPE_SELL_LIMIT, mt5.ORDER_TYPE_SELL_STOP, mt5.ORDER_TYPE_SELL_STOP_LIMIT]
+
+
+#buy_types = [mt5.ORDER_TYPE_BUY, mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP, mt5.ORDER_TYPE_BUY_STOP_LIMIT]
+#sell_types = [mt5.ORDER_TYPE_SELL, mt5.ORDER_TYPE_SELL_LIMIT, mt5.ORDER_TYPE_SELL_STOP, mt5.ORDER_TYPE_SELL_STOP_LIMIT]
 
 class mt5_client: #Connection to MT5 client
-    def __init__(self, path):
+    def __init__(self, account, version):
+        if version == 1:
+            self.mt5 = mt5_1
+        else:
+            self.mt5 = mt5_2
         # Establish the MT5 terminal
-        mt5.initialize(path)
-
-    def connect(self, account):
+        self.mt5.initialize(account['path'])
+        # Credentials
         self.account = account
         self.__login = account['login']
         self.__pwd = account['password']
         self.__server = account['server']
-        authorized=mt5.login(server=self.__server, login=self.__login, password=self.__pwd)
+        # Connect
+        self.connect()
+        
 
-        if authorized:
+    def connect(self):
+        self.authorized=self.mt5.login(server=self.__server, login=self.__login, password=self.__pwd)
+
+        if self.authorized:
             print("Connected to MT5 Client")
         else:
             print("Failed to connect at account #{}, error code: {}"
-                .format(self.__login, mt5.last_error()))
+                .format(self.__login, self.mt5.last_error()))
             self.authorized = False
             return
         
         self.initial_balance = self.account['capital']
-        self.day_balance = float(mt5.account_info().balance)
+        self.day_balance = float(self.mt5.account_info().balance)
         self.last_trade_day = datetime.utcnow().strftime("%Y%m%d")
-        self.open_balance = mt5.account_info().balance
+        self.open_balance = self.mt5.account_info().balance
         print("Initial Balance:", self.open_balance)
 
-        self.max_dd = self.account['max_dd']
-        self.max_daily_dd = self.account['daily_dd']
+        self.max_dd = self.account['max_dd'] * self.account['capital']
+        self.max_daily_dd = self.account['daily_dd'] * self.account['capital']
 
-        algo_trading = mt5.terminal_info().trade_allowed
+        algo_trading = self.mt5.terminal_info().trade_allowed
         if algo_trading == True:
             print("Algo Trading ENABLED")
             self.authorized = True
@@ -45,22 +57,28 @@ class mt5_client: #Connection to MT5 client
         return
 
     def disconnect(self):
-        mt5.shutdown()
+        self.mt5.shutdown()
         self.authorized=False
         print("Disconnected from MT5 Client")
+
+    def get_symbol_info(self, pair):
+        return self.mt5.symbol_info(pair)
+    
+    def order_calc_profit(self, action, symbol, volume, price_open, price_close):
+        return self.mt5.order_calc_profit(action, symbol, volume, price_open, price_close)
 
     ## positions always need to have a SL and TP
     def open_position(self, pair, order_type, size, tp=None, sl=None, tp_dist=None, sl_dist=None, comment=""):
         #TODO: Fix position entry fails to open when symbol not visible
         risk_ok = True
-        symbol_info = mt5.symbol_info(pair)
+        symbol_info = self.mt5.symbol_info(pair)
         if symbol_info is None:
             print(pair, "not found")
             return
 
         if not symbol_info.visible:
             print(pair, "is not visible, trying to switch on")
-            if not mt5.symbol_select(pair, True):
+            if not self.mt5.symbol_select(pair, True):
                 print("symbol_select({}}) failed, exit",pair)
                 return
         print(pair, "found!")
@@ -68,8 +86,8 @@ class mt5_client: #Connection to MT5 client
         point = symbol_info.point
         
         if(order_type == "BUY"):
-            order = mt5.ORDER_TYPE_BUY
-            price = mt5.symbol_info_tick(pair).ask
+            order = self.mt5.ORDER_TYPE_BUY
+            price = self.mt5.symbol_info_tick(pair).ask
             # if tp and sl, check if sl is less than sl dist, then use it
             # this means that sl_dist is always the max risk
             # means always should have an sl_dist and tp_dist - NOT TRUE
@@ -83,8 +101,8 @@ class mt5_client: #Connection to MT5 client
             else: tp = calc_tp
                 
         if(order_type == "SELL"):
-            order = mt5.ORDER_TYPE_SELL
-            price = mt5.symbol_info_tick(pair).bid
+            order = self.mt5.ORDER_TYPE_SELL
+            price = self.mt5.symbol_info_tick(pair).bid
             calc_sl = price + (sl_dist * point)
             calc_tp = price - (tp_dist * point)
             
@@ -95,7 +113,7 @@ class mt5_client: #Connection to MT5 client
 
 
         request = {
-            "action": mt5.TRADE_ACTION_DEAL,
+            "action": self.mt5.TRADE_ACTION_DEAL,
             "symbol": pair,
             "volume": float(size),
             "type": order,
@@ -104,22 +122,22 @@ class mt5_client: #Connection to MT5 client
             "tp": float(tp),
             "magic": 234000,
             "comment": str(comment),
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_time": self.mt5.ORDER_TIME_GTC,
+            "type_filling": self.mt5.ORDER_FILLING_IOC,
         }
         
-        risk = mt5.order_calc_profit(order, pair, float(size), float(price), float(sl))
+        risk = self.mt5.order_calc_profit(order, pair, float(size), float(price), float(sl))
         risk_ok = self.calc_risk(risk, symbol=pair)
 
         if risk_ok == True:
-            result = mt5.order_send(request)
+            result = self.mt5.order_send(request)
         else:
             result = lambda : None
             result.retcode = 0
             result.comment = "Risk exceeds max daily drawdown"
 
         #TODO: Retry sending order if invalid stops/invalid price etc.
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
+        if result.retcode != self.mt5.TRADE_RETCODE_DONE:
             print("Failed to send order:", result)
         else:
             print("Order successfully placed!")
@@ -127,15 +145,15 @@ class mt5_client: #Connection to MT5 client
 
     def open_pending(self, pair, order_type, size, price, tp=None, sl=None, tp_dist=None, sl_dist=None, comment=""):
         risk_ok = True
-        action = mt5.TRADE_ACTION_PENDING
-        symbol_info = mt5.symbol_info(pair)
+        action = self.mt5.TRADE_ACTION_PENDING
+        symbol_info = self.mt5.symbol_info(pair)
         if symbol_info is None:
             print(pair, "not found")
             return
 
         if not symbol_info.visible:
             print(pair, "is not visible, trying to switch on")
-            if not mt5.symbol_select(pair, True):
+            if not self.mt5.symbol_select(pair, True):
                 print("symbol_select({}}) failed, exit",pair)
                 return
         print(pair, "found!")
@@ -144,20 +162,20 @@ class mt5_client: #Connection to MT5 client
         price = float(price)
         
         if(order_type == "BUY"):
-            dir = mt5.ORDER_TYPE_BUY
-            current_price = mt5.symbol_info_tick(pair).ask
+            dir = self.mt5.ORDER_TYPE_BUY
+            current_price = self.mt5.symbol_info_tick(pair).ask
             # if pending price is within 1 point of current price, market order to avoid missing plays. 
             # TODO: decide if this is worth keeping. results in entering positions before alert, play might not yet be valid
             # could add directionality, so that you only convert to market entry if it would have been a limit order not a stop order
             # this would prevent missing plays because of late alert, but would prevent entering position early
             #if abs(current_price - price) < 1:
-            #    order = mt5.ORDER_TYPE_BUY
-            #    action = mt5.TRADE_ACTION_DEAL
+            #    order = self.mt5.ORDER_TYPE_BUY
+            #    action = self.mt5.TRADE_ACTION_DEAL
             #    price = current_price
             if current_price - price > 0:
-                order = mt5.ORDER_TYPE_BUY_LIMIT
+                order = self.mt5.ORDER_TYPE_BUY_LIMIT
             else:
-                order = mt5.ORDER_TYPE_BUY_STOP
+                order = self.mt5.ORDER_TYPE_BUY_STOP
 
             calc_sl = price - (sl_dist * point)
             calc_tp = price + (tp_dist * point)
@@ -168,17 +186,17 @@ class mt5_client: #Connection to MT5 client
             else: tp = calc_tp
                 
         if(order_type == "SELL"):
-            dir = mt5.ORDER_TYPE_SELL
-            current_price = mt5.symbol_info_tick(pair).bid
+            dir = self.mt5.ORDER_TYPE_SELL
+            current_price = self.mt5.symbol_info_tick(pair).bid
             # if pending price is within 1 point of current price, market order to avoid missing plays
             #if abs(current_price - price) < 1:
-            #    order = mt5.ORDER_TYPE_SELL
-            #    action = mt5.TRADE_ACTION_DEAL
+            #    order = self.mt5.ORDER_TYPE_SELL
+            #    action = self.mt5.TRADE_ACTION_DEAL
             #    price = current_price
             if current_price - price < 0:
-                order = mt5.ORDER_TYPE_SELL_LIMIT
+                order = self.mt5.ORDER_TYPE_SELL_LIMIT
             else:
-                order = mt5.ORDER_TYPE_SELL_STOP
+                order = self.mt5.ORDER_TYPE_SELL_STOP
 
             calc_sl = price + (sl_dist * point)
             calc_tp = price - (tp_dist * point)
@@ -198,22 +216,22 @@ class mt5_client: #Connection to MT5 client
             "tp": float(tp),
             "magic": 234000,
             "comment": str(comment),
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_time": self.mt5.ORDER_TIME_GTC,
+            "type_filling": self.mt5.ORDER_FILLING_IOC,
         }
 
-        risk = mt5.order_calc_profit(dir, pair, float(size), float(price), float(sl))
+        risk = self.mt5.order_calc_profit(dir, pair, float(size), float(price), float(sl))
         risk_ok = self.calc_risk(risk, symbol=pair)
         print("Price:", price, "SL:", sl)
 
         if risk_ok == True:
-            result = mt5.order_send(request)
+            result = self.mt5.order_send(request)
         else:
             result = lambda : None
             result.retcode = 0
             result.comment = "Risk exceeds max daily drawdown"
 
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
+        if result.retcode != self.mt5.TRADE_RETCODE_DONE:
             print("Failed to send order:", result)
         else:
             print("Order successfully placed!")
@@ -221,9 +239,9 @@ class mt5_client: #Connection to MT5 client
 
     def positions_get(self, symbol=None):
         if(symbol is None):
-            res = mt5.positions_get()
+            res = self.mt5.positions_get()
         else:
-            res = mt5.positions_get(symbol=symbol)
+            res = self.mt5.positions_get(symbol=symbol)
 
         if(res is not None and res != ()):
             df = pd.DataFrame(list(res),columns=res[0]._asdict().keys())
@@ -234,9 +252,9 @@ class mt5_client: #Connection to MT5 client
 
     def orders_get(self, symbol=None):
         if(symbol is None):
-            res = mt5.orders_get()
+            res = self.mt5.orders_get()
         else:
-            res = mt5.orders_get(symbol=symbol)
+            res = self.mt5.orders_get(symbol=symbol)
 
         if(res is not None and res != ()):
             df = pd.DataFrame(list(res),columns=res[0]._asdict().keys())
@@ -254,12 +272,12 @@ class mt5_client: #Connection to MT5 client
         symbol = open_positions['symbol'].iloc[0]
         if positions.empty == True: 
             size = open_positions['volume_current'].iloc[0]
-            action = mt5.TRADE_ACTION_MODIFY
+            action = self.mt5.TRADE_ACTION_MODIFY
         else: 
             size = open_positions['volume'].iloc[0]
-            action = mt5.TRADE_ACTION_SLTP
+            action = self.mt5.TRADE_ACTION_SLTP
         price = open_positions['price_open'].iloc[0]
-        point = mt5.symbol_info(symbol).point
+        point = self.mt5.symbol_info(symbol).point
 
         modify_request={
             "action": action,
@@ -275,9 +293,9 @@ class mt5_client: #Connection to MT5 client
 
         if(tp): modify_request["tp"] = float(tp)
         elif(tp_dist):
-            if order_type == mt5.ORDER_TYPE_BUY or order_type == mt5.ORDER_TYPE_BUY_LIMIT or order_type == mt5.ORDER_TYPE_BUY_STOP:
+            if order_type == self.mt5.ORDER_TYPE_BUY or order_type == self.mt5.ORDER_TYPE_BUY_LIMIT or order_type == self.mt5.ORDER_TYPE_BUY_STOP:
                 tp = price + (tp_dist * point)
-            elif order_type == mt5.ORDER_TYPE_SELL or order_type == mt5.ORDER_TYPE_SELL_LIMIT or order_type == mt5.ORDER_TYPE_SELL_STOP:
+            elif order_type == self.mt5.ORDER_TYPE_SELL or order_type == self.mt5.ORDER_TYPE_SELL_LIMIT or order_type == self.mt5.ORDER_TYPE_SELL_STOP:
                 tp = price - (tp_dist * point)
             modify_request["tp"] = float(tp)
         else:
@@ -288,31 +306,31 @@ class mt5_client: #Connection to MT5 client
             return result
 
         if(sl): 
-            if order_type == mt5.ORDER_TYPE_BUY or order_type == mt5.ORDER_TYPE_BUY_LIMIT or order_type == mt5.ORDER_TYPE_BUY_STOP:
+            if order_type == self.mt5.ORDER_TYPE_BUY or order_type == self.mt5.ORDER_TYPE_BUY_LIMIT or order_type == self.mt5.ORDER_TYPE_BUY_STOP:
                 if sl_dist != None:
                     calc_sl = price - (sl_dist * point)
                     sl = max(calc_sl, sl)
-                order_type = mt5.ORDER_TYPE_BUY
-            elif order_type == mt5.ORDER_TYPE_SELL or order_type == mt5.ORDER_TYPE_SELL_LIMIT or order_type == mt5.ORDER_TYPE_SELL_STOP:
+                order_type = self.mt5.ORDER_TYPE_BUY
+            elif order_type == self.mt5.ORDER_TYPE_SELL or order_type == self.mt5.ORDER_TYPE_SELL_LIMIT or order_type == self.mt5.ORDER_TYPE_SELL_STOP:
                 if sl_dist != None:
                     calc_sl = price + (sl_dist * point)
                     sl = min(calc_sl, sl)
-                order_type = mt5.ORDER_TYPE_SELL
+                order_type = self.mt5.ORDER_TYPE_SELL
             
-            risk = mt5.order_calc_profit(int(order_type), symbol, float(size), float(price), float(sl))
+            risk = self.mt5.order_calc_profit(int(order_type), symbol, float(size), float(price), float(sl))
             risk_ok = self.calc_risk(risk, symbol=symbol)
             modify_request["sl"] = float(sl) # move to end of if sl
             
         elif(sl_dist):
-            if order_type == mt5.ORDER_TYPE_BUY or order_type == mt5.ORDER_TYPE_BUY_LIMIT or order_type == mt5.ORDER_TYPE_BUY_STOP:
+            if order_type == self.mt5.ORDER_TYPE_BUY or order_type == self.mt5.ORDER_TYPE_BUY_LIMIT or order_type == self.mt5.ORDER_TYPE_BUY_STOP:
                 #TODO: Fix to match if(sl): so that bad sl_distances can be caught
                 sl = price - (sl_dist * point)
-                order_type = mt5.ORDER_TYPE_BUY
-            elif order_type == mt5.ORDER_TYPE_SELL or order_type == mt5.ORDER_TYPE_SELL_LIMIT or order_type == mt5.ORDER_TYPE_SELL_STOP:
+                order_type = self.mt5.ORDER_TYPE_BUY
+            elif order_type == self.mt5.ORDER_TYPE_SELL or order_type == self.mt5.ORDER_TYPE_SELL_LIMIT or order_type == self.mt5.ORDER_TYPE_SELL_STOP:
                 sl = price + (sl_dist * point)
-                order_type = mt5.ORDER_TYPE_SELL
+                order_type = self.mt5.ORDER_TYPE_SELL
 
-            risk = mt5.order_calc_profit(int(order_type), symbol, float(size), float(price), float(sl))
+            risk = self.mt5.order_calc_profit(int(order_type), symbol, float(size), float(price), float(sl))
             risk_ok = self.calc_risk(risk, symbol=symbol)
             modify_request["sl"] = float(sl) # move to end of if sl
 
@@ -325,13 +343,13 @@ class mt5_client: #Connection to MT5 client
             return result
 
         if risk_ok == True:
-            result = mt5.order_send(modify_request)
+            result = self.mt5.order_send(modify_request)
         else:
             result = lambda : None
             result.retcode = 0
             result.comment = "Risk exceeds max daily drawdown"
         
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
+        if result.retcode != self.mt5.TRADE_RETCODE_DONE:
             print("Failed to modify order:", result)
         else:
             print("Order successfully modified!")
@@ -343,22 +361,22 @@ class mt5_client: #Connection to MT5 client
         position = open_positions[open_positions['ticket'] == deal_id]
         order_type = position['type'].iloc[0]
         symbol = position['symbol'].iloc[0]
-        symbol_info = mt5.symbol_info(symbol)
+        symbol_info = self.mt5.symbol_info(symbol)
 
         if volume == None:
             volume = position['volume'].iloc[0]
         else:
             volume = symbol_info.volume_step * (1 + float(volume) // symbol_info.volume_step)
 
-        if(order_type == mt5.ORDER_TYPE_BUY):
-            order_type = mt5.ORDER_TYPE_SELL
-            price = mt5.symbol_info_tick(symbol).bid
+        if(order_type == self.mt5.ORDER_TYPE_BUY):
+            order_type = self.mt5.ORDER_TYPE_SELL
+            price = self.mt5.symbol_info_tick(symbol).bid
         else:
-            order_type = mt5.ORDER_TYPE_BUY
-            price = mt5.symbol_info_tick(symbol).ask
+            order_type = self.mt5.ORDER_TYPE_BUY
+            price = self.mt5.symbol_info_tick(symbol).ask
         
         close_request={
-            "action": mt5.TRADE_ACTION_DEAL,
+            "action": self.mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
             "volume": float(volume),
             "type": order_type,
@@ -366,13 +384,13 @@ class mt5_client: #Connection to MT5 client
             "price": price,
             "magic": 234000,
             "comment": comment,
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_time": self.mt5.ORDER_TIME_GTC,
+            "type_filling": self.mt5.ORDER_FILLING_IOC,
         }
 
-        result = mt5.order_send(close_request)
+        result = self.mt5.order_send(close_request)
         
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
+        if result.retcode != self.mt5.TRADE_RETCODE_DONE:
             print("Failed to close order:", result)
         else:
             print("Order successfully closed!")
@@ -401,21 +419,21 @@ class mt5_client: #Connection to MT5 client
         
     def remove_pending(self, order_id):
         close_request={
-            "action": mt5.TRADE_ACTION_REMOVE,
+            "action": self.mt5.TRADE_ACTION_REMOVE,
             "order": order_id,
         }
-        result = mt5.order_send(close_request)
+        result = self.mt5.order_send(close_request)
         
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
+        if result.retcode != self.mt5.TRADE_RETCODE_DONE:
             print("Failed to close order:", result)
         else:
             print("Order successfully closed!")
         return result
     
     #TODO: check to make sure symbol name is correct, used only for getting current time data
-    def calc_risk(self, stopout, symbol="XAUUSD+"):
-        account_balance = float(mt5.account_info().balance)
-        time = mt5.symbol_info(symbol).time
+    def calc_risk(self, stopout, symbol="XAUUSD"):
+        account_balance = float(self.mt5.account_info().balance)
+        time = self.mt5.symbol_info(symbol).time
         date = datetime.utcfromtimestamp(time).strftime("%Y%m%d")
 
         if date != self.last_trade_day: # if new day, reset max daily dd to current balance
@@ -433,12 +451,12 @@ class mt5_client: #Connection to MT5 client
         dd = 0
         for index, position in open_positions.iterrows():
             sl = abs(float(position['price_open']) - float(position['sl'])) #try printing this to make sure it's correct
-            risk = float(mt5.symbol_info(position['symbol']).point)*float(position['volume']) #try printing this to make sure it's correct
+            risk = float(self.mt5.symbol_info(position['symbol']).point)*float(position['volume']) #try printing this to make sure it's correct
             dd += risk*sl
         #for index, order in open_orders.iterrows():
-            #risk = abs(order['price_open'] - order['sl'])*mt5.symbol_info(order['symbol']).point*order['volume_current']
+            #risk = abs(order['price_open'] - order['sl'])*self.mt5.symbol_info(order['symbol']).point*order['volume_current']
             #dd += risk
-        print(account_balance, dd, stopout, self.day_balance, self.max_daily_dd)
+        print("Bal: %f CurDD: %f Stopout: %f DayBal: %f MaxDayDD: %f" % (account_balance, dd, stopout, self.day_balance, self.max_daily_dd))
         if account_balance - dd - abs(stopout) <= self.day_balance - self.max_daily_dd:
             #Risk exceeds max allowed daily dd
             return False
@@ -452,4 +470,4 @@ class mt5_client: #Connection to MT5 client
 
     def get_price(self, symbol):
         #TODO: retrieve some data about a symbol, price, etc
-        return mt5.symbol_info_tick(symbol).bid, mt5.symbol_info_tick(symbol).ask
+        return self.mt5.symbol_info_tick(symbol).bid, self.mt5.symbol_info_tick(symbol).ask

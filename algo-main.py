@@ -144,7 +144,7 @@ class CentralThread(threading.Thread):
         # Check to make sure that the other account uses the other path
         if acc1[1]['path'] == acc2[1]['path']:
             print("Accounts %s and %s have same path. Exiting." % (acc1, acc2))
-            quit();
+            quit()
         
         # Connect the accounts if not already connected
         if self.client1.account_name != acc1[0]: self.client1.connect(acc1[0], 1)
@@ -155,23 +155,11 @@ class CentralThread(threading.Thread):
         result2 = self.client2.open_pos(side_acc2)
         
         
-        # TODO: Check success of opening positions (Fills, fails, need to retry, close opposite)
-        
-
-
-    #def run(self):
-        # Implement central trading logic here
-        #pass
-        # Run trade schedule generator corroutine each day
-        #asyncio.run(tradeschedule.main())
-        
-        
-        
+        # TODO: Check success of opening positions (Fills, fails, need to retry, close opposite)       
+          
         # Is it up to the client threads to manage the trade schedules? Shouldn't be incase one gets hung up.
         # Central thread should take care of all trade scheduling and analyze success or failure of trade execution.
         # How are we going to handle closing positions for high volatility news events? How will we unify the time zones?
-
-
 
 
 if __name__ == '__main__':
